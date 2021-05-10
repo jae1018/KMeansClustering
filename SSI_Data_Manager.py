@@ -269,7 +269,398 @@ class CustomDate:
         return date_ranges
         
         
-# ================================================================
+# ========== MAIN CLASS: SSI_DATA_MANAGER ==========
+
+
+
+"""
+
+
+  ########## SSI_Data_Manager CLASS DESCRIPTION ##########
+      
+      
+  
+  
+  
+  
+  
+  
+  ***** CONSTRUCTOR *****
+  
+  
+  
+  
+  
+  
+  ----- "Necessary" Arguments -----
+  
+  original_data_folders (default arg == None):
+      Type - String / List of Strings
+      Purpose - This is either a string or a list of strings. Either way, the
+          string(s) are the global address of folders containing raw data.
+          
+  prepared_data_folder (default arg == None):
+      Type - String
+      Purpose - Like original_data_folders, but the string is the global
+          address of a folders that contains saved .csvs of processed data.
+          
+  ----- "Extra" Arguments -----
+  
+  instruments (default arg == None, becomes ["tha","thb","thc","thd","the"]):
+      Type - String / List of Strings
+      Purpose - The instruments that recorded the data being processed (e.g.
+          for the purpose of THEMIS: tha)
+      Supported instruments - "tha", "thb", "thc", "thd", "the"
+      
+  enable warnings (default arg == None, becomes True):
+      Type - Boolean
+      Purpose - If True, prints warnings to terminal
+      
+  start_date (default arg == None):
+      Type - List of nums acting as a date [year,month,day,hour,min,sec]
+      Purpose - A numerical date that acts as the start time for all cleaned data
+      
+  
+          
+  NOTES:
+      1.) Raw data is only kept until it is fully processed into cleaned data, and
+          then it is dumped. For this reasoning, EITHER original_data_folders
+          OR prepared_data_folder must be supplied (i.e. not None). If both
+          are given not-None values or both are None when the constructor is
+          called, this program will exit.
+      2.) If no start date is provided to the constructor, the earliest date found
+          amongst all raw data from original_data_folders will act as the start date.
+          
+  EXAMPLES:
+      
+      ----- 1 -----
+      my_raw_files = ["files/are/here","and/here/too"]
+      instruments = ["tha", "thd", "the"]
+      SSI_Data_Manager(original_data_folders=my_raw_files,instruments=instruments)
+      
+      ----- 2 -----
+      my_csvs = "my/csvs/are/here"
+      SSI_Data_Manager(prepared_data_folder=my_csvs)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ***** CLASS / "STATIC" ATTRIBUTES *****
+      (but it's Python, so they're mutable technically)
+  
+    
+  
+    
+  
+    
+  
+  input_files_dict - A dictionary of filenames containing all data from
+      an instrument. Since an overall experiment will generally have multiple
+      instruments (e.g. mms: mms(1-4), themis: th(a-e)), a general marker needs
+      to replace the identifying character. That character is the hash (#), and
+      will be replaced at runtime when the instrument has been specified.
+            
+  legal_inst_names - A list of strings of legal instrument names to use
+  
+  raw_data_index_dict - Dictionary showing the order of columns in the raw data
+      files
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ***** INSTANCE ATTRIBUTES *****
+      (i.e. non-static )
+      
+      
+      
+      
+      
+      
+      
+  === DATA STRUCTURE ===
+  _raw_data - A way of organizing the raw data read in from the folders in
+      original_data_folders. Described explicitly, it is a ...
+      dict ... of dicts .... of dicts ... of dataframes.
+      This data is raw (as in no numerical modifications); the order of columns
+      of data in the files can be seen in the _raw_data_index_dict dictionary.
+      The first lay of keys are the folders from which the data is read,
+      the second layer of keys are the instruments, and the final third layer
+      of keys are the variables being read in (which are also the keys of
+      input_files_dict). The deeply-nestled dataframes are dataframes for 
+      variables measurements (which contain both the value and time of the
+      measurement in date format).
+      
+  _clean_data - Like _raw_data, but the data is "cleaner". In _raw_data,
+      the time is stored as a date (a function of year, month, day, hour, minute,
+      and second) but in _clean_data, it's saved as a single variable: the number
+      of seconds since start_date. More simply, _clean_data is just a dict of
+      dataframes where the keys are instruments (e.g. "tha"). By specifying an
+      instrument, a dataframe is returned that contains ALL data processed for
+      that instrument in a "matrix" format (where there is a column for time,
+      another column for x-position measurements, another for B_X, etc.).
+      It can be optionally specified to build vector magnitudes, which requires
+      handling of the data points where certain vector components may not have
+      measurements; the current solution to this is to REMOVE any such data points.
+  ======================
+    
+  
+  var_names - A dict that tracks the "proper" names of variables; by proper, it
+      is meant the name that will be printed on plots or attached to dataframes
+      returned using the get_data() function. The keys will always be the original
+      variable names (e.g. "X", "R", "temp"), but the values from those key-value
+      pairs will reflect changes made to the quantities (e.g. when taking Log,
+      then "X" --> "LOG_X")
+
+  
+  units_dict - A dict that track the units of variables where the keys are the
+      unaltered variables names (e.g. the key in {"X": "km"} will always be "X"
+      and NOT {"LOG_X": "km"}.
+  
+  
+  instruments - A list of the user-provided names of instruments that data
+      is to be retrieved from (e.g. "mms1", "mms2", etc.)
+      
+
+  vector_comps - A dict of strings where providing a vector name returns a 
+      list of what its components are (e.g. vector_comps["R"] = ["X","Y","Z"]).
+      
+  
+  _dependent_variables - A dict detailing the units of optional, dependent variables
+      that the user may compute later on.
+      
+    
+  _enable_warnings - Boolean (see "enable_warnings" argument under Constructor
+      description).
+  
+  
+  start_data - 6-element list of nums that describes the start time. The nums
+      are [year,month,day,hour,minute,second].
+      
+      
+      
+      
+      
+      
+      
+      
+      
+  ***** PUBLIC FUNCTIONS *****
+  (See the commented descriptions above the
+   functions for more details)
+  
+  
+  
+  
+  
+  
+  
+    save_data_to_csv(self,path_to_folder) - Saves the processed data to .csv files
+        where they can be reloaded into this program later (using the
+        prepared_data_folder arg in the constructor) or used completely
+        externally.
+        
+        path_to_folder is a string that is the global address of the folder
+          where you want to drop these .csvs; if the folder does not exist,
+          it will be created.
+  
+  
+  
+  
+  
+  
+
+
+    plot_data(self,fig_folder,plot_duration=None,add_to_figname=None) - 
+        Plots data as .pngs based on the current units in use (be sure to change
+        units beforehand if desired!) and saved them to the folder fig_folder
+        (which will be created if the provided folder address doesn't exist).
+        
+        plot_duration is a string dictating what length of time should be used
+        per plot; the current supported values are "day", "week", "month" and "year".
+        BE AWARE: If you have a year's worth of data, 5 instruments, and you select
+                  "day", then 5 * 365 plots will be made!
+                 
+        add_to_figname is also a string, and adds the given string onto the created
+        fignames (handy if you are trimming data and want to save separate plots
+        of the original data vs the trimmed data)
+        
+        EXAMPLE:
+            plot_data("/drop/them/here",plot_duration="month")
+            plot_data("/drop/here/too",add_to_figname="extra_str")
+  
+    
+  
+    
+  
+
+  
+    
+    trim_data(self,var_name,min_val=None,max_val=None,remove_interval=None) -
+        Removes all data for variable var_name outside of the bounds of min_val
+        and max_val. If min_val is not set at the call, then it will internally
+        become the global min. And if max_val is not set, then it will become the
+        global max.
+        
+        If var_name is "time", then the provided min_val / max_val can be dates
+        (instead of just seconds). These need to include at least one number in
+        their list (for the year), and the rest can be defaulted.
+        
+        If remove_interval is set to True, then all data WITHIN the bounds min_val
+        and max_val will be removed!
+        
+        If neither min_val nor max_val are set, then this function will fail.
+        
+        EXAMPLE: trim_data("B",max_val=150) - removes any data points where
+                                                B exceeds 150
+                 trim_data("V_X",min_val=-100,max_val=150) - removes points where
+                                           V_X is below -100 or above 150
+        
+  
+    
+  
+  
+    get_data(self,single_frame=None,add_instrument_col=None) - Returns all data
+        as a dict of dataframes where the keys are the instruments used. Using
+        the single_frame default arg, a single frame can be returned instead.
+        
+        If single_frame is set to True, then only a single Pandas dataframe is
+        returned
+        
+        If add_instrument_col is True, then an additional columns is added to
+        the dataframe(s) that indicate which instrument was responsible for
+        that measurement.
+        
+  
+    
+  
+    
+    
+    modify_var(self,var_name,new_units,new_units_func,new_var_name="") - Used
+        for changing the name or units of a variable. This is the base function
+        called internally when calling auxiliary functions such as make_log,
+        convert_time_to, and shift_time.
+        
+        Basically, if you want to change a variable but can't find a preexisting
+        function in this class that already does it, you should call this.
+        
+        EXAMPLE:
+            modify_var("time","my_new_units",lambda x: x * 1/3000,
+                       new_var_name="my_new_name_for_time")
+            modify_var("temp","Kelvins",lambda x: x * 11600)
+  
+    
+  
+    
+    
+    make_log(vars_to_modify) - Converts the variables provided in vars_to_modify
+        to base-10 log, e.g. x --> log( |x| ). This action will modify the units
+        and the final variable name (e.g. "B_X (nT)" --> "LOG_B_X (LOG_nT)").
+        
+        EXAMPLE: make_log(["B_X","B_Y","B_Z","B"])
+  
+    
+
+
+    
+    convert_time_to(new_time_units) - Converts units for time to new_time_units
+        for select units. Current options are "secs", "mins", "hours", "days",
+        and "weeks".
+
+        EXAMPLE:
+            convert_time_to("days")
+            convert_time_to("mins")
+  
+    
+  
+    shift_time(time_shift) - Shifts all times by amount time_shift.
+        EXAMPLE:
+            shift_time(86400)  (If time in seconds, then shifts time by a day)
+    
+    
+    
+    get_names_dict() - Returns a dictionary whose keys are variable names
+        (e.g. "X" or "V_Y") and whose values are the name including their
+        units (e.g. "X (R_E)" or "V_Y (km/s)"). These latter strings are
+        the column titles in the resulting pandas dataframe returned in
+        get_data_2D.
+        
+        If you modify variables using the make_log or modify_var functions,
+        you should probably call this function afterward and save the
+        resulting dict.
+        
+        EXAMPLE: name_dict = get_names_dict()
+                 name_dict["X"] --> "X (R_E)"
+        
+        
+        
+    shift_start_time_to(new_start_date) - Shifts the start time such that
+        new_start_data corresponds to time = 0.
+        
+        EXAMPLE: shift_start_time_to([2009,01,01])
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+  ***** _RAW_DATA / _CLEAN_DATA STRUCTURE *****
+      
+  
+    
+  The description for _raw_data and _clean data is above, but here is a
+  visualization:
+    
+      
+    
+    
+  
+  _raw_data =  [ "first/file/set": 1st file set dict , "next/file/set": 2nd file set dict , ... ]
+                                         ||
+                ===== "first/file/set" ====
+                ||
+                vv
+        [ "tha": dict of "tha" data , "thb": dict of "thb" data , ... ]
+              ||
+              ==== "tha" =====
+                            ||
+                            vv
+                [ "X": x-position dataframe, "Y": y-position dataframe, ...]
+                            ||
+            ====== "X" =======
+            ||
+            vv
+        All x-position data (including time of measurement) for instrument "tha"
+        that derives from data found in "first/file/set".
+
+
+
+
+
+
+
+  _clean_data = [ "tha": dataframe for inst "tha", "thb": dataframe for inst thb, ...]
+                               ||
+          =======================
+          ||
+          vv
+    dataframe containing ALL data for instrument "tha" that was processed
+        
+        
+"""
 
 
 
